@@ -1,0 +1,24 @@
+{
+  "name": "ggsmida",
+  "description": "test",
+  "keywords": [
+    "node.js",
+    "websockets",
+    "sonotone.io"
+  ],
+  "author": {
+    "name": "Mingdan XU"
+  },
+  "version": "0.0.1",
+  "engines": {
+    "node": ">= 0.8.0"
+  },
+  "config": {
+    "verbose": false
+  },
+  "dependencies": {
+    "websocket": "~1.0.8",
+    "connect": "~2.8.4"
+  }
+}
+
