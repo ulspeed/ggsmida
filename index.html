@@ -120,7 +120,65 @@
 	  		width: 6%;
 	  		height: 12%;
 	  		vertical-align: middle;
-		}		
+		}
+
+		.game-local-video {
+			position: absolute;
+			top: 150px;
+			left: 5px;
+			width: 260px;
+			height: 200px;
+			border:1px solid black;
+		}
+
+		.game-remote-video {
+			position: absolute;
+			top: 150px;
+			left: 895px;
+			width: 260px;
+			height: 200px;
+			border:1px solid black;
+		}
+
+		.local-score {
+			position: absolute;
+			top: 380px;
+			left: 80px;
+			width: 100px;
+			height: 50px;
+			font-size: 3vw;
+			border:1px solid black;
+		}
+
+		.remote-score {
+			position: absolute;
+			top: 380px;
+			left: 980px;
+			width: 100px;
+			height: 50px;
+			font-size: 3vw;
+			border:1px solid black;
+		}
+
+		.game-canvas {
+			position: absolute;
+			top: 10px;
+			left: 280px;
+			width: 600px;
+			height: 500px;
+			border:1px solid black;
+		}
+	
+		.game-control {
+			position: absolute;
+			top: 530px;
+			left: 280px;
+			width: 600px;
+			height: 80px;
+			padding: 5px;
+			border:1px solid black;
+		}
+		
 	</style>
 </head>
 <body>
@@ -165,6 +223,10 @@
 		<button id="dataCall" type="button" onclick="dataCall()" >Establish data channel</button>
 		<input type="file" id="fileElt"></input>
 		<button id="sendFile" type="button" onclick="sendFile()" >Send file</button>
+		<br/>
+		<br/>
+		<button type="button" onclick="prepareGame()">Enter game</button>
+		<label id="hintMsg">Choose one user and start game</label>
 	</div>
 	<div id="fileList" class="file-list">
 		<label class="label-head">Files received:</label>
@@ -172,6 +234,21 @@
 	</div>
     </div>
 
+    <div id="gameBoard" class="full-screen" style="visibility:hidden">
+	<video id="gameLocalVideo" autoplay=true class="game-local-video"></video>
+	<video id="gameRemoteVideo" autoplay=true class="game-remote-video"></video>
+	<div id="localScore" class="local-score"></div>
+	<div id="remoteScore" class="remote-score"></div>
+	<canvas id=myCanvas class="game-canvas"></canvas>
+	<div class="game-control">
+		<button type="button" onclick="startGame()">Start Game</button>
+		<button type="button" onclick="exitGame()">Exit Game</button>
+		<span>&nbsp;|&nbsp;</span>
+		<button type="button" onclick="startVideo()">Turn on video</button>
+		<button type="button" onclick="videoCall()">Video call</button>
+		<button type="button" onclick="stopVideo()">Turn off video</button>	
+	</div>
+    </div>
 
     <script type="text/javascript" src="ggsmida.js"></script>
     <script>
@@ -179,6 +256,9 @@
 	var eventsmida = eventsmida();
 	var websocketsmida;
 	var userName = "X-Man";
+	var gamePlayer;
+	var myScore = 0;
+	var yourScore = 0;
 	
 /************* user functions **************/
 
@@ -252,8 +332,10 @@
 	    eventsmida.on("onCallEnded", onCallEnded, this);
 	    eventsmida.on("onMessageReceived", onMessageReceived, this);
 	    eventsmida.on("onFileReceived", onFileReceived, this);
+	    eventsmida.on("onWinScore", onWinScore, this);
+	    eventsmida.on("onResetScore", onResetScore, this);
 
-	    websocketsmida = websocketsmida({host: '192.168.1.10', port: '1337'});
+	    websocketsmida = websocketsmida({host: '81.253.149.13', port: '1337'});
 	    websocketsmida.connect(pseu);
 
 	}	
@@ -263,7 +345,7 @@
 	function startVideo() {
 	    var constraints = {
 		video: true,
-		audio: false  
+		audio: true  
 	    };
 	    
 	    videosmida(constraints);
@@ -286,7 +368,7 @@
 	}
 
 	function stopVideo() {
-	    document.getElementById("localVideo").src = '';
+	    adaptersmida().detachToMedia(document.getElementById("localVideo"));
 	    if(users.length > 0) {	
 		console.log("Frontend :: Stop video! ");
 		var peers = new Array ();
@@ -338,7 +420,7 @@
 	    	peers = document.getElementsByName("userCheckbox");
 		for (var i=0; i < peers.length; i++) {
 	      		if (peers[i].checked) {
-				datacallsmida(peers[i].id);
+				datacallsmida(peers[i].id, false);
 			}
 		}
 	    }
@@ -363,6 +445,48 @@
 		console.log("Frontend :: No participant!");
 	    }
 	}	
+
+/************** Game functions ******************/
+
+	function prepareGame() {
+	    document.getElementById("functionBoard").style.visibility="hidden";
+	    document.getElementById("gameBoard").style.visibility="visible";
+
+	    if(users.length > 0) {	
+		console.log("Frontend :: Try to establish a data channel! ");
+		var peers = new Array ();
+	    	peers = document.getElementsByName("userCheckbox");
+		for (var i=0; i < peers.length; i++) {
+	      		if (peers[i].checked) {
+				datacallsmida(peers[i].id, false);
+				gamePlayer=peers[i].id;
+				break;
+			}
+		}
+	    }
+	    else {
+		console.log("Frontend :: No participant!");
+	    }
+	    
+	}
+
+	function startGame() {
+	    var myCanvas = document.getElementById("myCanvas");
+	    myCanvas.width = 600;
+	    myCanvas.height = 500;
+	    myScore = 0;
+	    yourScore = 0;	
+	    document.getElementById("localScore").innerHTML = myScore;
+	    document.getElementById("remoteScore").innerHTML = yourScore;  
+	    gamesmida(myCanvas, gamePlayer);
+
+	}
+
+	function exitGame() {
+	    stopgamesmida();
+	    document.getElementById("functionBoard").style.visibility="visible";
+	    document.getElementById("gameBoard").style.visibility="hidden";
+	}
 
 /************** callback functions ***************/
 
@@ -394,12 +518,23 @@
 	
 	function onLocalMediaStarted(stream) {
 	    console.log("Frontend :: Local media started!");
-	    document.getElementById("localVideo").src = URL.createObjectURL(stream);	    
+	    if(document.getElementById("functionBoard").style.visibility === "hidden") {
+	    	adaptersmida().attachToMedia(document.getElementById("gameLocalVideo"), stream);   
+	    }
+	    else {
+		adaptersmida().attachToMedia(document.getElementById("localVideo"), stream);
+	    } 
 	}
 	
 	function onRemoteMediaStarted(stream) {
 		console.log("Frontend :: Remote media started!");
-		document.getElementById("remoteVideo").src = URL.createObjectURL(stream);
+		if(document.getElementById("functionBoard").style.visibility === "hidden") {
+	    	    adaptersmida().attachToMedia(document.getElementById("gameRemoteVideo"), stream);   
+	        }
+	        else {
+		    adaptersmida().attachToMedia(document.getElementById("remoteVideo"), stream);
+	        } 
+
 	}
 
 	function onCallOffered(msg) {
@@ -413,7 +548,12 @@
 
 	function onCallEnded(msg) {
 	    console.log("Frontend :: ON CALL ENDED:", msg);
-	    document.getElementById("remoteVideo").src = '';
+	    if(document.getElementById("functionBoard").style.visibility === "hidden") {
+	    	adaptersmida().detachToMedia(document.getElementById("gameRemoteVideo"));   
+	    }
+	    else {
+		adaptersmida().detachToMedia(document.getElementById("remoteVideo"));
+	    }
 	}
 
 	function onMessageReceived(msg) {
@@ -426,7 +566,29 @@
 	    }
 	}
 
-	function onFileReceived(file) {
+	function onWinScore(isWin) {
+	    if(isWin) {
+		console.log("Frontend :: Win one score!");
+		myScore++;
+		document.getElementById("localScore").innerHTML = myScore;
+	    }
+	    else {
+		console.log("Frontend :: Lose one score!");
+		yourScore++;
+		document.getElementById("remoteScore").innerHTML = yourScore;
+	    }	
+	}
+
+	function onResetScore() {
+	    console.log("Frontend :: Reset score!");
+	    myScore = 0;
+	    yourScore = 0;	
+	    document.getElementById("localScore").innerHTML = myScore;
+	    document.getElementById("remoteScore").innerHTML = yourScore;      
+	}
+
+	//onFileReceived function can only run in chrome
+	function onFileReceived(file) {   
 		console.log("Frontend :: Received a file", file);
 
 		navigator.webkitPersistentStorage.requestQuota(10*1024*1024, function(grantedBytes){

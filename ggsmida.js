@@ -25,6 +25,8 @@ var _file = []; //store blobs of a file.
 var file; //file to be sent
 var fileInfo = null; // file information
 var remainingBlob; //remaining of file
+var _yourBar, _myBar, _cube; //bars of the two players and cube
+var runGame;
 
 /**
  * peerConnection, used to return a RTCPeerConnection
@@ -116,13 +118,14 @@ return peerConnection;
  * @param {String} id of callee
  * @param {object} peer used to create Data Channel
  * @param {object} received channel
+ * @param {boolean} judge whether there is file to send after channel is opened.
  */
 function datachannelsmida(callee, peerCreated, channel, isSend) {
 
 	var _channel;
 
 	if(!channel) {
-		_channel = peerCreated.createDataChannel(callee, null); //param: (id of channel, dataChannelOptions), dataChannelOptions can be set reliable or unreliable mode(TCP/UDP) and so on. it's SCTP 
+		_channel = peerCreated.createDataChannel(callee, null); //param: (id of channel, dataChannelOptions), dataChannelOptions can be set reliable or unreliable mode(similar with TCP/UDP) and so on. it's SCTP 
 		console.log("ggsmida-datachannelsmida :: Create a new datachannel!");
 		
 	}
@@ -178,7 +181,7 @@ function datachannelsmida(callee, peerCreated, channel, isSend) {
 		    try {
 			if(e.data.indexOf('{') === 0) {
 			    var jsonMessage = JSON.parse(e.data);
-
+				
 			    switch (jsonMessage.type) {
                             case "FILE_START":
                                 console.log("ggsmida-datachannelsmida :: Start receiving file", jsonMessage.content);
@@ -206,6 +209,23 @@ function datachannelsmida(callee, peerCreated, channel, isSend) {
                                     _channel.send(JSON.stringify(msg));
                                 }
                                 break;
+			    case "GAME_BAR":
+				 console.log("ggsmida-datachannelsmida :: GAME update Bar");
+				_yourBar.update(jsonMessage);
+				break;
+			    case "GAME_CUBE":
+				console.log("ggsmida-datachannelsmida :: GAME update Cube");
+				_cube.update(jsonMessage);
+				break;
+			    case "GAME_SCORE":
+				console.log("ggsmida-datachannelsmida :: GAME win/lose score");
+				_callbacks.trigger("onWinScore",jsonMessage.score);
+				_myBar.setX(250); // reset my Bar
+				break;
+			    case "GAME_RESET":
+				console.log("ggsmida-datachannelsmida :: GAME reset score");
+				_callbacks.trigger("onResetScore");
+				break;
 			    }                            
 			}
 		    }
@@ -297,6 +317,7 @@ function videocallsmida (callee) {
 /**
  * call to establish data channel with remote peer
  * @param {String} id of callee
+ * @param {boolean} judge whether the purpose of this data call is to send file
  */
 function datacallsmida (callee, flag) {
 
@@ -396,7 +417,7 @@ function sendblobsmida (blob, callee) {
 
         fr.onload = function() {
             remainingBlob = blob.slice(toSend.size);
-            _channels[callee].send(this.result); //when the blob has been read into memory fully, set the result attribute as ArrayBuffer
+            _channels[callee].send(this.result); //when the blob has been read into memory fully, set the result attribute as ArrayBuffer and send
         };
         
         fr.readAsArrayBuffer(toSend);
@@ -484,7 +505,7 @@ function eventsmida () {
 
 /**
  * websocket manager
- * 
+ * @param {object} config host, port
  */
 function websocketsmida (config) {
 
@@ -582,7 +603,7 @@ function websocketeventsmida () {
 
 /**
  * answer to offer from a peer
- *
+ * @param {String} callee
  */
 function answersmida (callee) {
 
@@ -658,37 +679,679 @@ function adaptersmida () {
 			else if(isFirefox) {
 				return new window.mozRTCIceCandidate(candidate);
 			}	
+		},
+
+		attachToMedia: function(element, stream) {
+			if(isChrome) {
+				if (typeof element.srcObject !== 'undefined') {
+                			element.srcObject = stream;
+            			} else if (typeof element.mozSrcObject !== 'undefined') {
+               				element.mozSrcObject = stream;
+           			} else if (typeof element.src !== 'undefined') {
+                			element.src = window.URL.createObjectURL(stream);
+           			}
+			}
+			else if(isFirefox) {
+				element.mozSrcObject = stream;
+            			element.play();
+			}
+		},
+
+		detachToMedia: function(element) {
+			if(isChrome) {			
+                		element.src = '';
+			}
+			else if(isFirefox) {
+				element.mozSrcObject = null;
+			}
+		},
+	}
+}
+
+/********************************************************************************
+***********************functions for game***************************************
+********************************************************************************/
+
+/**
+ * save key event and status
+ */
+var key = {
+	_pressed: {},
+
+	LEFT: 37,
+	UP: 38,
+	RIGHT: 39,
+	DOWN: 40,
+
+	isDown: function(keyCode) {
+		return this._pressed[keyCode];
+	},
+
+	onKeydown: function(event) {
+		this._pressed[event.keyCode] = true;
+		console.log("ggsmida-onKeydown :: "+event.keyCode);
+	},
+
+	onKeyup: function(event) {
+		delete this._pressed[event.keyCode];
+		console.log("ggsmida-onKeyup :: "+event.keyCode);
+	}
+
+};
+
+/**
+ * bar of this player
+ * @param {object} information of this bar
+ */
+var myBar = function(infoBag) {
+	this.x = infoBag.position.x;
+	this.y = infoBag.position.y;
+	this.width = infoBag.form.width;
+	this.height = infoBag.form.height;
+	this.speed = infoBag.speed;
+	this.direction = infoBag.direction //direction of bar, 0=stop, 1=left, 2=right
+};
+
+myBar.prototype = {
+	getX: function () {
+		return this.x;
+	},
+
+	getY: function () {
+		return this.y;
+	},
+
+	getWidth: function() {
+		return this.width;
+	},
+
+	getHeight: function() {
+		return this.height;
+	},
+
+	getSpeed: function() {
+		return this.speed;
+	},
+
+	getDirection: function() {
+		return this.direction;
+	},
+
+	setX: function (x) {
+		this.x = x;
+	},
+
+	setY: function (y) {
+		this.y = y;
+	},
+
+	setWidth: function(w) {
+		this.width = w;
+	},
+
+	setHeight: function(h) {
+		this.height = h;
+	},
+
+	setSpeed: function(s) {
+		this.speed = s;
+	},
+
+	setDirection: function(d) {
+		this.direction = d;
+	},
+
+	createInfo: function() {
+		var info = {
+		    type: "GAME_BAR",
+		    position: {
+			x: this.getX(),
+			y: this.getY()
+		    },
+		    form: {
+			width: this.getWidth(),
+			height: this.getHeight()
+		    },
+		    speed: this.getSpeed(),
+		    direction: this.getDirection()
+		};
+		var msg = JSON.stringify(info);
+		return msg;
+	}
+};
+
+
+/**
+ * bar of another player
+ * @param {object} information of this bar
+ * @param {number} width of canvas 
+ * @param {number} height of canvas 
+ */
+var yourBar = function(infoBag, w, h) {
+	this.x = infoBag.position.x;
+	this.y = infoBag.position.y;
+	this.width = infoBag.form.width;
+	this.height = infoBag.form.height;
+	this.speed = infoBag.speed;
+	this.direction = infoBag.direction //direction of bar, 0=stop, 1=left, 2=right
+	this.wCanvas = w;
+	this.hCanvas = h;
+};
+
+yourBar.prototype = {
+	getX: function () {
+		return this.x;
+	},
+
+	getY: function () {
+		return this.y;
+	},
+
+	getWidth: function() {
+		return this.width;
+	},
+
+	getHeight: function() {
+		return this.height;
+	},
+
+	getSpeed: function() {
+		return this.speed;
+	},
+	
+	getDirection: function() {
+		return this.direction;
+	},
+
+	setX: function (x) {
+		this.x = x;
+	},
+
+	setY: function (y) {
+		this.y = y;
+	},
+
+	setWidth: function(w) {
+		this.width = w;
+	},
+
+	setHeight: function(h) {
+		this.height = h;
+	},
+
+	setSpeed: function(s) {
+		this.speed = s;
+	},
+
+	setDirection: function(d) {
+		this.direction = d;
+	},
+	
+	update: function(info) {
+		this.x = this.wCanvas-info.position.x-info.form.width;
+		this.y = this.hCanvas-info.position.y-info.form.height;
+		this.width = info.form.width;
+		this.height = info.form.height;
+		this.speed = info.speed;
+		if(info.direction === 1) {
+			this.direction = 2;
+		}
+		else if (info.direction === 2) {
+			this.direction = 1;
+		}
+		else {
+			this.direction = info.direction;
+		}
+	}
+
+};
+
+/**
+ * cube to be played
+ * @param {object} information of this cube
+ * @param {number} width of canvas 
+ * @param {number} height of canvas 
+ */
+var cube=function(infoBag, w, h) {
+	this.x = infoBag.position.x;
+	this.y = infoBag.position.y;
+	this.width = infoBag.form.width;
+	this.height = infoBag.form.height;
+	this.speedX = infoBag.speed.x;
+	this.speedY = infoBag.speed.y;
+	this.directX = infoBag.direction.x; //direction on x line, 0=stop, 1=left, 2=right 
+	this.directY = infoBag.direction.y; //direction on y line, 0=stop, 1=up, 2=down
+	this.wCanvas = w;
+	this.hCanvas = h;
+};
+
+cube.prototype = {
+
+	getX: function () {
+		return this.x;
+	},
+
+	getY: function () {
+		return this.y;
+	},
+
+	getWidth: function() {
+		return this.width;
+	},
+
+	getHeight: function() {
+		return this.height;
+	},
+
+	getSpeedX: function() {
+		return this.speedX;
+	},
+
+	getSpeedY: function() {
+		return this.speedY;
+	},
+
+	getDirectX: function() {
+		return this.directX;
+	},
+
+	getDirectY: function() {
+		return this.directY;
+	},
+
+	setX: function (x) {
+		this.x = x;
+	},
+
+	setY: function (y) {
+		this.y = y;
+	},
+
+	setWidth: function(w) {
+		this.width = w;
+	},
+
+	setHeight: function(h) {
+		this.height = h;
+	},
+
+	setSpeedX: function(sx) {
+		this.speedX = sx;
+	},
+
+	setSpeedY: function(sy) {
+		this.speedY = sy;
+	},
+
+	setDirectX: function(dx) {
+		this.directX = dx;
+	},
+
+	setDirectY: function(dy) {
+		this.directY = dy;
+	},
+
+	createInfo: function() {
+		var info = {
+		    type: "GAME_CUBE",
+		    position: {
+			x: this.getX(),
+			y: this.getY()
+		    },
+		    form: {
+			width: this.getWidth(),
+			height: this.getHeight()
+		    },
+		    speed: {
+			x: this.getSpeedX(),
+			y: this.getSpeedY()
+		    },
+		    direction: {
+			x: this.getDirectX(),
+			y: this.getDirectY()
+		    }
+		};
+		var msg = JSON.stringify(info);
+		return msg;
+	},
+
+	update: function(info) {
+		this.x = this.wCanvas-info.position.x-info.form.width;
+		this.y = this.hCanvas-info.position.y-info.form.height;
+		this.width = info.form.width;
+		this.height = info.form.height;
+		this.speedX = info.speed.x;
+		this.speedY = info.speed.y;
+		if (info.direction.x === 1) {
+			this.directX = 2;
+		}
+		else if (info.direction.x === 2) {
+			this.directX = 1;
+		}
+		else if (info.direction.x === 0) {
+			this.directX = 0;
+		}
+
+		if (info.direction.y === 1) {
+			this.directY = 2;
+		}
+		else if (info.direction.y === 2) {
+			this.directY = 1;
+		}
+		else if (info.direction.y === 0) {
+			this.directY = 0;
+		}
+	}
+};
+
+
+/**
+ * clear canvas. it is not possible to move objects in the canvas surface. It's necessarily to clear it, whole or in the parts, on each frame. To achieve this, let's create clear() function. 
+ * @param {object} should be a canvas
+ */
+function clear(element) {
+	var ctx = element.getContext('2d');
+	ctx.fillStyle = 'white';
+	ctx.beginPath();
+	ctx.rect(0, 0, element.width, element.height);
+	ctx.closePath();
+	ctx.fill();
+}
+
+
+/**
+ * move cube
+ * @param {object} should be a canvas
+ * @param {object} the cube
+ * @param {object} my bar
+ * @param {String} id of the other player
+ */
+function moveCube(element, c, mybar, callee) {
+
+	var isMove = false;
+	if(c.getDirectX() === 1) {  // X left
+	    if(c.getX() < c.getSpeedX()) {
+		c.setX(0);
+		c.setDirectX(2);
+	    }
+	    else {
+		c.setX(c.getX()-c.getSpeedX());
+	    }
+	    isMove = true;
+	}
+	/*else if(c.getDirectX() === 2) { // X right
+	    if(c.getSpeedX() > element.width-c.getX()-c.getWidth() ) {
+		c.setX(element.width-c.getWidth());
+		c.setDirectX(1);
+	    }
+	    else {
+		c.setX(c.getX()+c.getSpeedX());
+	    }
+	}*/
+
+	/*if(c.getDirectY() === 1) {  // Y up
+	   if(c.getY()-yourbar.getHeight() < c.getSpeedY()) {
+		if((c.getX()+c.getWidth() > yourbar.getX()) && (c.getX() < yourbar.getX()+yourbar.getWidth())) { // can touch yourBar		
+		    c.setY(yourbar.getHeight());
+		    c.setDirectY(2);
+		}
+		else { //cannot touch yourBar
+		    if(c.getSpeedY() > c.getY()) {
+		        c.setY(0);
+		    } 
+		    else {
+			c.setY(c.getY()-c.getSpeedY());
+		    }
+		}
+	    }
+	    else {
+		c.setY(c.getY()-c.getSpeedY());
+	    }
+	}
+	else */
+	if(c.getDirectY() === 2) { // Y down
+	    if(c.getSpeedY() > element.height-c.getY()-c.getHeight()-mybar.getHeight()) {
+		if((c.getX()+c.getWidth() > mybar.getX()) && (c.getX() < mybar.getX()+mybar.getWidth())) { // can touch myBar		
+		    c.setY(element.height-c.getHeight()-mybar.getHeight());
+		    c.setDirectY(1);
+		    if (mybar.getDirection() !== 0){ // The cube changes speed in direction x after the collision with the bar
+			if (mybar.getDirection() === c.getDirectX()) {
+		    	    c.setSpeedX(c.getSpeedX()+mybar.getSpeed());
+		        }
+		    	else {  
+			    var speedx = c.getSpeedX()-mybar.getSpeed();
+			    if (speedx < 0) {
+				
+				if(c.getDirectX() === 1) {
+				    c.setDirectX(2);
+				}
+				else if(c.getDirectX() === 2) {
+				    c.setDirectX(1);
+				}
+				else if(c.getDirectX() === 0) {
+				    c.setDirectX(mybar.getDirection());
+				}
+			    }
+			    else if(speedx === 0) {
+				c.setDirectX(0);
+			    }
+			    c.setSpeedX(Math.abs(speedx));
+			}
+		    }
+		}
+		else { //cannot touch myBar
+		    if(c.getSpeedY() > element.height-c.getY()-c.getHeight()) {
+		        winScore(c, false, callee); 
+		    } 
+		    else {
+			c.setY(c.getY()+c.getSpeedY());
+		    }
+		}
+	    }
+	    else {
+		c.setY(c.getY()+c.getSpeedY());
+	    }
+	    isMove = true;
+	}
+
+	if(isMove) { //only when it's moved in my end, i send the update information
+	    sendGameInfo(c.createInfo(), callee); 
+	}
+
+}
+
+/**
+ * move myBar in the direction of x
+ * @param {object} should be a canvas
+ * @param {object} bar to be moved
+ */
+function moveBar(element, bar) {
+	
+	bar.setDirection(0);
+	if (key.isDown(key.LEFT)) {
+
+		if(bar.getX()<bar.getSpeed()){
+			bar.setX(0);
+		}
+		else {
+			bar.setX(bar.getX()-bar.getSpeed());
+			bar.setDirection(1);
+		}
+	}
+
+	if (key.isDown(key.RIGHT)) {
+		
+		if((bar.getX()+bar.getWidth()+bar.getSpeed()) > element.width){
+			bar.setX(element.width-bar.getWidth());
+		}
+		else {
+			bar.setX(bar.getX()+bar.getSpeed());
+			bar.setDirection(2);
 		}
 	}
 }
 
+/**
+ * draw Rect
+ * @param {object} should be a canvas
+ * @param {object} bar to be drawn
+ */
+function drawRect(element, bar) {
+	var ctx = element.getContext('2d');
+	ctx.fillStyle = 'green';
+	ctx.beginPath();
+	ctx.rect(bar.getX(),bar.getY(),bar.getWidth(),bar.getHeight());
+	ctx.closePath();
+	ctx.fill();
+} 
 
- 
+/**
+ * send information of my bar to the opposite player
+ * @ param {String} infomation of my bar, if info is object, should use JSON.stringify(info)
+ * @ param {String} callee
+ */
+function sendGameInfo(info, callee) {
+	if(!(callee in _channels)) {
+		console.log("ggsmida-sendGameInfo :: Please establish data channel firstly!!");
+	}
+	else {
+		_channels[callee].send(info);
+	} 
+}
+
+/**
+ * win score
+ * @param {object} cube
+ * @param {boolean} if true, I win a score. if flase, the other player win a score
+ * @param {String} id of the other player
+ */
+function winScore(c, isWin, callee) {
+
+	console.log("ggsmida-winScore :: Reset cube and send the win score event!");
+	var infoCube = { //reset information
+	    position: {
+		x: 290,
+		y: 240
+	    },
+	    form: {
+		width: 20,
+		height: 20
+	    },
+	    speed: {
+		x: 0,
+		y: 5
+	    },
+	    direction: {
+		x: 0,
+		y: 2
+	    }
+	};
+
+	var info = {
+	    type: "GAME_SCORE",
+	    score: !isWin
+	};
+
+	c.update(infoCube); //reset the cube
+	_myBar.setX(250);
+
+	sendGameInfo(JSON.stringify(info), callee); //tell the other player he got one score
+
+	_callbacks.trigger("onWinScore", isWin);
+}
 
 
+/**
+ * run game
+ * @param {object} should be a canvas
+ * @param {String} id of opposite player
+ */
+function gamesmida(element, callee) {
+	
+	var resetScore = {
+		type: "GAME_RESET"
+	};
+	sendGameInfo(JSON.stringify(resetScore), callee);
 
+	var width = element.width, height = element.height;
+	var howManyRects = 3;
+	var rectangles = [];
+	for (var i=0; i<howManyRects; i++) {
+	    rectangles.push([Math.random()*width, Math.random()*height, Math.random()*100, Math.random()*100]);
+	}
+	var infoMyBar = { //initialize my bar
+	    position: {
+		x: 250,
+		y: 480
+	    },
+	    form: {
+		width: 100,
+		height: 20
+	    },
+	    speed: 8,
+	    direction: 0
+	};
 
+	var infoYourBar = { //initialize your bar
+	    position: {
+		x: 250,
+		y: 0
+	    },
+	    form: {
+		width: 100,
+		height: 20
+	    },
+	    speed: 8,
+	    direction: 0
+	};
 
+	var infoCube = { //initialize the cube
+	    position: {
+		x: 290,
+		y: 240
+	    },
+	    form: {
+		width: 20,
+		height: 20
+	    },
+	    speed: {
+		x: 0,
+		y: 5
+	    },
+	    direction: {
+		x: 0,
+		y: 2
+	    }
+	}
 
+	_myBar = new myBar(infoMyBar);
+	_yourBar = new yourBar(infoYourBar, width, height);
+	_cube = new cube(infoCube, width, height);
 
+	window.addEventListener("keydown", function (event) {key.onKeydown(event);}, false);
+	window.addEventListener("keyup", function (event) {key.onKeyup(event);}, false);
 
+	var gameLoop = function () {
+	    clear(element);
+	    moveBar(element, _myBar);
+	    moveCube(element, _cube, _myBar, callee);
+	    drawRect(element, _myBar);
+	    drawRect(element, _yourBar);
+	    drawRect(element, _cube);
+	    sendGameInfo(_myBar.createInfo(), callee);    
+	    console.log("ggsmida-gamesmida :: run gameLoop!");
+	    runGame = setTimeout(gameLoop, 1000/60);
+	}
+	gameLoop();	
 
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * stop the game
+ */
+function stopgamesmida(){
+	clearTimeout(runGame);
+}
 
 
 
